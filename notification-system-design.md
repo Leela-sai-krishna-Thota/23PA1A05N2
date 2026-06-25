@@ -248,3 +248,22 @@ function worker_process_db_and_push(push_job):
         push_to_app(push_job.student_id, push_job.message)
     catch DatabaseException as e:
         retry_job(push_job)
+
+
+## Stage 6
+
+### 1. Algorithm & Sorting Approach
+To implement the Priority Inbox without relying on a database query layer, the sorting algorithm relies on a **composite ranking system**:
+* **Primary Key (Type Weight):** Standard notifications are mapped to explicit numerical values where `Placement = 3`, `Result = 2`, and `Event = 1`.
+* **Secondary Key (Recency):** Timestamps are parsed into raw Unix millisecond integers. If two notifications share the identical category weight, the larger Unix timestamp (most recent) breaks the tie.
+
+---
+
+### 2. Maintaining Top 10 Efficiently with Continuous Incoming Streams
+If notifications stream into the server constantly, pulling all notifications and sorting them from scratch each time ($O(N \log N)$) is highly inefficient. 
+
+To maintain the top 10 dynamically in memory, we should implement a **Min-Priority Heap (Bounded Heap)** data structure:
+1. We initialize a Min-Heap capped at a fixed maximum capacity of $n = 10$.
+2. For every newly arriving notification item, we compare its calculated rank against the root item of the Min-Heap (which holds the current minimum element within our top 10 subset).
+3. If the incoming item possesses a higher rank than the current minimum root, the old root is evicted (`extract-min`), and the new notification is inserted ($O(\log n)$ insertion complexity).
+4. **Efficiency Benefit:** Because $n$ is constrained to a tiny scale ($n = 10$), the computation cost of checking and reorganizing the heap structure is nearly instant ($O(1)$ constant time overhead relative to a growing stream size $N$). This completely safeguards application performance against heavy data growth.
