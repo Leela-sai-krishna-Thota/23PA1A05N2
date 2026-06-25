@@ -150,3 +150,35 @@ Instead of a full table scan, we should implement a **Composite Index** (a multi
 ```sql
 CREATE INDEX idx_notifications_student_unread_date 
 ON notifications (studentID, isRead, createdAt);
+
+
+
+
+### Stage 4
+
+### 1. The Core Problem
+Fetching data directly from the primary relational database on every single page load for every student creates an intense, repetitive read bottleneck. As concurrent traffic grows, the database experiences high CPU usage, connection pool exhaustion, and severe disk I/O bottlenecks, resulting in slow response times and a degraded user experience.
+
+---
+
+### 2. Suggested Solutions & Strategies
+
+To scale this system and alleviate database pressure, we can implement three primary strategies: **Caching**, **Connection Polling/Read Replicas**, and **Event-Driven Push Architecture**.
+
+| Strategy | How it Improves Performance | Key Tradeoffs |
+| :--- | :--- | :--- |
+| **Strategy 1: In-Memory Caching (Redis / Memcached)** | Stores the unread notification count or list in memory. Instead of hitting the DB on every page load, the API reads from Redis in sub-milliseconds. The cache is updated only when a new notification arrives or when a user marks a notification as read. | * **Pros:** Extremely fast reads, instantly drops DB load by 80-90%.<br>* **Cons:** Adds architectural complexity. Risks data stale-ness if cache invalidation logic fails. |
+| **Strategy 2: Database Read Replicas** | Separates database traffic. All write operations (`INSERT`, `UPDATE`) go to a Primary DB node, while all page-load read queries are distributed across one or more Read Replicas. | * **Pros:** Highly effective for read-heavy applications; requires minimal changes to application logic.<br>* **Cons:** Replication lag (a student might see a slight delay of a few milliseconds/seconds before a new notification shows up on a replica). |
+| **Strategy 3: WebSockets / Server-Sent Events (SSE)** | Instead of the client constantly polling or requesting data on page load, establish a persistent connection. The server pushes new notifications to the client browser in real time *only* when they happen. | * **Pros:** Eliminates redundant page-load database hits for unchanged data; provides an instant, real-time user experience.<br>* **Cons:** Maintaining thousands of concurrent open connections requires specialized server memory configurations (e.g., using a reverse proxy or gateway). |
+
+---
+
+### 3. Recommended Architectural Choice
+
+The ideal production architecture should combine **Strategy 1 (Caching)** and **Strategy 3 (WebSockets/SSE)**:
+
+1. **On Page Load:** The client requests the unread notification batch. The application layer looks at **Redis**. If it's a cache hit, it returns immediately. If it's a miss, it fetches from the DB once and populates Redis.
+2. **Real-Time Delivery:** When a background process generates a notification, it pushes it directly to the active user session via **WebSockets/SSE** and concurrently updates the database/cache asynchronously. This removes the need for brute-force database fetching altogether.
+
+
+
