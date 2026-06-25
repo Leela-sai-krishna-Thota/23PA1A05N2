@@ -267,3 +267,6 @@ To maintain the top 10 dynamically in memory, we should implement a **Min-Priori
 2. For every newly arriving notification item, we compare its calculated rank against the root item of the Min-Heap (which holds the current minimum element within our top 10 subset).
 3. If the incoming item possesses a higher rank than the current minimum root, the old root is evicted (`extract-min`), and the new notification is inserted ($O(\log n)$ insertion complexity).
 4. **Efficiency Benefit:** Because $n$ is constrained to a tiny scale ($n = 10$), the computation cost of checking and reorganizing the heap structure is nearly instant ($O(1)$ constant time overhead relative to a growing stream size $N$). This completely safeguards application performance against heavy data growth.
+
+
+
