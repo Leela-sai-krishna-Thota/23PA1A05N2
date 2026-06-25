@@ -270,3 +270,16 @@ To maintain the top 10 dynamically in memory, we should implement a **Min-Priori
 
 
 
+## Stage 7
+
+### 1. Frontend Implementation Strategy
+To convert the scaffolding into a robust production-grade application, the interface is split into structural layers:
+* **State & Filter Layer:** Manages query boundaries dynamically using React hooks (`useState`, `useEffect`) to control API inputs (`limit`, `page`, and `notification_type`).
+* **Visual Separation (Read vs. Unread):** Read notifications are visually subdued using secondary opacity adjustments, while unread elements stand out cleanly using an explicit baseline accent indicator.
+* **Component Architecture:** Relies exclusively on Material-UI (MUI) components (`Card`, `Select`, `Pagination`, `Badge`) to build a responsive presentation viewport matching both desktop and mobile dimensional bounds.
+
+---
+
+### 2. Edge-Case Mitigation & Architecture Stabilization
+* **Robust Error Handling:** Network state drops or bad API returns are caught gracefully within state variables to display a visual `Alert` component instead of allowing a blank screen crash.
+* **State Management for Unsaved States:** Component mounting initializes safe default query fallbacks (`limit=10`, `page=1`) to eliminate unexpected undefined parameter exceptions on the network request layers.
