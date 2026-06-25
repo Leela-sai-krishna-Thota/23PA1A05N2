@@ -133,3 +133,20 @@ SET isRead=true
 WHERE id='notification_id';
 
 
+## Stage 3
+
+**Yes, the query is functionally accurate.** It correctly uses the `WHERE` clause to filter by a specific student (`studentID = 1042`) and isolates unread messages (`isRead = false`), while sorting them chronologically from oldest to newest (`ORDER BY createdAt ASC`). 
+
+
+The query is slow because the database has scaled to **5,000,000 notifications**. 
+
+Without an explicit index on these columns, the database engine is forced to perform a **Full Table Scan**. This means it must scan through all 5 million rows one by one to find the matching records for that specific student, causing severe disk I/O and CPU overhead.
+
+---
+
+
+Instead of a full table scan, we should implement a **Composite Index** (a multi-column index) that covers the filtering and sorting columns:
+
+```sql
+CREATE INDEX idx_notifications_student_unread_date 
+ON notifications (studentID, isRead, createdAt);
