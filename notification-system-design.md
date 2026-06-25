@@ -181,4 +181,70 @@ The ideal production architecture should combine **Strategy 1 (Caching)** and **
 2. **Real-Time Delivery:** When a background process generates a notification, it pushes it directly to the active user session via **WebSockets/SSE** and concurrently updates the database/cache asynchronously. This removes the need for brute-force database fetching altogether.
 
 
+## Stage 5
 
+### 1. Shortcomings of the Current Implementation
+* **Synchronous & Blocking Operations:** Processing 50,000 students in a single synchronous `for` loop means the HR's HTTP request will hang and inevitably hit a gateway timeout. If each iteration (Email API + DB Write + WebSocket Push) takes just 100ms, the entire process will take **5,000 seconds (approx. 1.4 hours)**.
+* **Single Point of Failure (No Fault Tolerance):** If the server crashes or an API rate limit is hit midway, the loop terminates. There is no tracking mechanism to know which students received the notification and which didn't.
+* **Tightly Coupled Tasks:** If `send_email` fails or responds slowly, it blocks or prevents `save_to_db` and `push_to_app` from executing for that student. 
+
+---
+
+### 2. Handling the 200 Failed Email Calls ("What Now?")
+Because the current script does not have state tracking or transaction boundaries, we must analyze the application logs to extract the specific `student_ids` of the 200 failed records. 
+* To resolve this immediately, we create a one-time recovery script targeting *only* those 200 IDs to send the missing emails. 
+* In the redesigned system (detailed below), these failures would automatically be caught by a **Message Queue** worker and moved to a **Dead Letter Queue (DLQ)** for automated retries without affecting the rest of the application.
+
+---
+
+### 3. Redesign for Speed & Reliability
+
+#### Should saving to the DB and sending the email be handled together?
+**No, they must be strictly decoupled.** Sending an email relies on a third-party network service (e.g., SendGrid, AWS SES) which is inherently prone to latency and intermittent failures. Database operations are internal and fast. They should be handled as separate, independent asynchronous background tasks so that an email API outage does not stop a student from receiving their in-app notification.
+
+#### The Redesign Strategy (Message Queues):
+1. **Publisher:** When the HR clicks "Notify All", the main application creates a single batch event payload and pushes it to an asynchronous message broker (e.g., RabbitMQ, Redis BullMQ, or Amazon SQS). The API responds instantly to the HR with "Notification broadcasting started."
+2. **Workers/Consumers:** Multiple background worker instances pull tasks concurrently from the queue, scaling horizontally to process the 50,000 entries in parallel within minutes.
+
+---
+
+### 4. Revised Architecture & Pseudocode
+
+Instead of a monolithic loop, we split the logic into a **Publisher** and independent **Asynchronous Workers**.
+
+```python
+# 1. Main API Controller (Executed instantly when HR clicks button)
+function notify_all_api_handler(student_ids: array, message: string):
+    # Instead of processing, we offload the bulk work to a background queue
+    enqueue_job("broadcast_notifications_job", {
+        "student_ids": student_ids,
+        "message": message
+    })
+    return response({"status": "Processing initiated successfully"})
+
+
+# 2. Background Bulk Job Processor (Splits into specialized, individual worker tasks)
+function process_broadcast_notifications_job(job_data):
+    for student_id in job_data.student_ids:
+        # Push individual specialized tasks to separate queues for decoupled scaling
+        enqueue_job("email_queue", {"student_id": student_id, "message": job_data.message})
+        enqueue_job("db_and_app_push_queue", {"student_id": student_id, "message": job_data.message})
+
+
+# 3. Dedicated Email Worker (Handles independent retries and failure fallback)
+function worker_process_email(email_job):
+    try:
+        send_email(email_job.student_id, email_job.message)
+    catch EmailAPIException as e:
+        # Automatically retries up to 3 times, then moves to Dead Letter Queue (DLQ)
+        retry_job_or_move_to_dlq(email_job, max_retries=3)
+
+
+# 4. Dedicated Database & App Push Worker
+function worker_process_db_and_push(push_job):
+    try:
+        # Wrap database state and live websocket push together
+        save_to_db(push_job.student_id, push_job.message)
+        push_to_app(push_job.student_id, push_job.message)
+    catch DatabaseException as e:
+        retry_job(push_job)
